@@ -11,6 +11,74 @@ from tensorflow.keras import backend as K
 from tensorflow.keras import activations, initializers, regularizers, constraints
 from tensorflow.keras.layers import Layer, InputSpec
 
+class MyInput(Layer):
+
+    def __init__(self, sparse_vocab_dict, sparse_scope, embedding_size, prefix="", is_export=False, **kwargs):
+        print("yahao-dbg: myinput: init")
+        self.sparse_vocab_dict = sparse_vocab_dict
+        self.sparse_scope = sparse_scope
+        self.embedding_size = embedding_size
+        self.prefix = prefix
+        self.is_export = is_export
+        self.embedded_results = []
+        #self.input_spec = InputSpec(shape=input_shape)
+        self.input_spec = InputSpec(shape=(31,))
+        super(MyInput, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        print("yahao-dbg: myinput: build")
+        print("yahao-dbg: myinput: input_shape: ", input_shape)
+        if input_shape is None:
+            input_shape = (31,)
+        super(MyInput, self).build(input_shape) # self.built=True
+
+    def call(self, inputs):
+        print("yahao-dbg: myinput: call")
+        with tf.variable_scope(self.sparse_scope):
+            for name in self.sparse_vocab_dict.keys():
+                ## !!! yahao todo 
+                # ids = list(inputs[name])
+                ids = inputs
+                embeddings_name = "embeddings_{prefix}{name}".format(prefix=self.prefix, name=name)
+                if not self.is_export:
+                    vocab_size = self.sparse_vocab_dict.get(name)
+                    #partitioner = tf.fixed_size_partitioner(self.ps_count) if self.ps_count > 0 else None
+
+                    embeddings = tf.get_variable(
+                            name=embeddings_name,
+                            shape=[vocab_size, self.embedding_size],
+                            trainable=True,
+                            initializer=tf.constant_initializer(0.1),
+                            #partitioner=partitioner,
+                            partitioner=None,
+                            )
+                    embeded_get = tf.nn.embedding_lookup(embeddings, ids)
+                else:
+                    embeded_get = tf.nn.embedding_lookup(embeddings_name, tf.cast(tf.reshape(ids, [-1, 1]), tf.int64))
+                self.embedded_results.append(embeded_get)
+        emb_lookup_results = tf.concat(self.embeded_get, axis=1)
+        ## tf.reshape(emb_lookup_results)
+        return emb_lookup_results
+
+
+    def compute_output_shape(self, input_shape):
+        print("yahao-dbg: compute_output_shape")
+        print(input_shape.shape)
+        output_shape = list(input_shape).append(self.embedding_size)
+        print("output_shape", output_shape)
+        return output_shape
+
+    def get_config(self):
+        """
+        Method for returning the configuration of the MMoE layer.
+
+        :return: Config dictionary
+        """
+        print('yahao-dbg: myinput: enter')
+        base_config = super(MyInput, self).get_config()
+        print('yahao-dbg: myinput: base_config: ', base_config)
+        return base_config
+
 
 class MMoE(Layer):
     """
@@ -112,7 +180,11 @@ class MMoE(Layer):
                             or list/tuple of Keras tensors to reference
                             for weight shape computations
         """
+        print("yahao-dbg: mmoe: input_shape: " , input_shape)
         assert input_shape is not None and len(input_shape) >= 2
+        if input_shape is None:
+            # should be None if input layer is customized
+            input_shape = (26,)
 
         input_dimension = input_shape[-1]
 
@@ -200,6 +272,10 @@ class MMoE(Layer):
         :param input_shape: Shape tuple (tuple of integers)
         :return: List of input shape tuple where the size of the list is equal to the number of tasks
         """
+        print("mmoe input_shape: ", input_shape)
+        if input_shape is None:
+            # should be None if input layer is customized
+            input_shape = (26,)
         assert input_shape is not None and len(input_shape) >= 2
 
         output_shape = list(input_shape)

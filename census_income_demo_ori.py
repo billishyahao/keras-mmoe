@@ -20,7 +20,7 @@ from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.callbacks import Callback
 from sklearn.metrics import roc_auc_score
 
-from mmoe import MMoE, MyInput
+from mmoe import MMoE
 
 SEED = 1
 
@@ -31,18 +31,7 @@ np.random.seed(SEED)
 random.seed(SEED)
 
 # Fix TensorFlow graph-level seed for reproducibility
-# tf.random.set_seed(SEED)
 tf.compat.v1.random.set_random_seed(SEED)
-
-CAT_VOCAB_SIZE = [
-          1461, 586, 11299105, 2416541, 306, 24, 12598, 634, 4, 95980, 5725, 9292738, 3208, 28,
-            15211, 6047969, 11, 5722, 2178, 4, 7822987, 18, 16, 303075, 105, 148165
-            ]
-
-sparse_vocab_dict = {}
-for i in range(1, len(CAT_VOCAB_SIZE)+1):
-    sparse_vocab_dict["C" + str(i)] = CAT_VOCAB_SIZE[i-1]
-print(sparse_vocab_dict)
 
 # Simple callback to print out ROC-AUC
 class ROCCallback(Callback):
@@ -90,21 +79,27 @@ class ROCCallback(Callback):
         return
 
 
-def data_preparation_criteo():
-    column_names = [ "Id", "Label", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "I8", "I9", "I10", "I11", "I12","I13",
-    "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17",
-    "C18", "C19", "C20", "C21", "C22", "C23", "C24", "C25", "C26"]
+def data_preparation():
+    # The column names are from
+    # https://www2.1010data.com/documentationcenter/prod/Tutorials/MachineLearningExamples/CensusIncomeDataSet.html
+    column_names = ['age', 'class_worker', 'det_ind_code', 'det_occ_code', 'education', 'wage_per_hour', 'hs_college',
+                    'marital_stat', 'major_ind_code', 'major_occ_code', 'race', 'hisp_origin', 'sex', 'union_member',
+                    'unemp_reason', 'full_or_part_emp', 'capital_gains', 'capital_losses', 'stock_dividends',
+                    'tax_filer_stat', 'region_prev_res', 'state_prev_res', 'det_hh_fam_stat', 'det_hh_summ',
+                    'instance_weight', 'mig_chg_msa', 'mig_chg_reg', 'mig_move_reg', 'mig_same', 'mig_prev_sunbelt',
+                    'num_emp', 'fam_under_18', 'country_father', 'country_mother', 'country_self', 'citizenship',
+                    'own_or_self', 'vet_question', 'vet_benefits', 'weeks_worked', 'year', 'income_50k']
 
     # Load the dataset in Pandas
     train_df = pd.read_csv(
-        '/home/yahao/task/mmoe/kaggle-2014-criteo/train.tiny.csv',
+        'data/census-income.data.gz',
         delimiter=',',
         header=None,
         index_col=None,
         names=column_names
     )
     other_df = pd.read_csv(
-        '/home/yahao/task/mmoe/kaggle-2014-criteo/test.tiny.csv',
+        'data/census-income.test.gz',
         delimiter=',',
         header=None,
         index_col=None,
@@ -112,40 +107,41 @@ def data_preparation_criteo():
     )
 
     # First group of tasks according to the paper
-    label_columns = ['Label']
+    label_columns = ['income_50k', 'marital_stat']
 
     # One-hot encoding categorical columns
-    categorical_columns = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20", "C21", "C22", "C23", "C24", "C25", "C26"]
-
+    categorical_columns = ['class_worker', 'det_ind_code', 'det_occ_code', 'education', 'hs_college', 'major_ind_code',
+                           'major_occ_code', 'race', 'hisp_origin', 'sex', 'union_member', 'unemp_reason',
+                           'full_or_part_emp', 'tax_filer_stat', 'region_prev_res', 'state_prev_res', 'det_hh_fam_stat',
+                           'det_hh_summ', 'mig_chg_msa', 'mig_chg_reg', 'mig_move_reg', 'mig_same', 'mig_prev_sunbelt',
+                           'fam_under_18', 'country_father', 'country_mother', 'country_self', 'citizenship',
+                           'vet_question']
     train_raw_labels = train_df[label_columns]
     other_raw_labels = other_df[label_columns]
+    transformed_train = pd.get_dummies(train_df.drop(label_columns, axis=1), columns=categorical_columns)
+    transformed_other = pd.get_dummies(other_df.drop(label_columns, axis=1), columns=categorical_columns)
 
-    print("yahao: ", train_df.drop(set(column_names)-set(categorical_columns), axis=1).shape)
-    transformed_train = train_df.drop(set(column_names)-set(categorical_columns), axis=1)
-    transformed_other = other_df.drop(set(column_names)-set(categorical_columns), axis=1)
+    # Filling the missing column in the other set
+    transformed_other['det_hh_fam_stat_ Grandchild <18 ever marr not in subfamily'] = 0
 
     # One-hot encoding categorical labels
-    '''
     train_income = to_categorical((train_raw_labels.income_50k == ' 50000+.').astype(int), num_classes=2)
     train_marital = to_categorical((train_raw_labels.marital_stat == ' Never married').astype(int), num_classes=2)
     other_income = to_categorical((other_raw_labels.income_50k == ' 50000+.').astype(int), num_classes=2)
     other_marital = to_categorical((other_raw_labels.marital_stat == ' Never married').astype(int), num_classes=2)
-    '''
-    train_ctr = to_categorical((train_raw_labels.Label == '0').astype(int), num_classes=2)
-    print("train_ctr", train_ctr.shape)
-    other_ctr = to_categorical((other_raw_labels.Label == '0').astype(int), num_classes=2)
 
     dict_outputs = {
-        'ctr': train_ctr.shape[1]
+        'income': train_income.shape[1],
+        'marital': train_marital.shape[1]
     }
-
     dict_train_labels = {
-        'ctr': train_ctr
+        'income': train_income,
+        'marital': train_marital
     }
     dict_other_labels = {
-        'ctr': other_ctr
+        'income': other_income,
+        'marital': other_marital
     }
-
     output_info = [(dict_outputs[key], key) for key in sorted(dict_outputs.keys())]
 
     # Split the other dataset into 1:1 validation to test according to the paper
@@ -163,22 +159,16 @@ def data_preparation_criteo():
 
 def main():
     # Load the data
-    train_data, train_label, validation_data, validation_label, test_data, test_label, output_info = data_preparation_criteo()
-    # train_data, train_label, validation_data, validation_label, test_data, test_label, output_info = data_preparation()
+    train_data, train_label, validation_data, validation_label, test_data, test_label, output_info = data_preparation()
     num_features = train_data.shape[1]
 
-    print(type(train_data))
     print('Training data shape = {}'.format(train_data.shape))
-    print('Training label shape = {}'.format(len(train_label)))
     print('Validation data shape = {}'.format(validation_data.shape))
     print('Test data shape = {}'.format(test_data.shape))
 
     # Set up the input layer
-    #input_layer = Input(shape=(num_features,))
-    #print("yahao-dbg: finish initialing input_layer")
-    input_layer = MyInput(sparse_vocab_dict=sparse_vocab_dict, sparse_scope="yahao-",
-            embedding_size=16, input_shape=(num_features,))._inbound_nodes[0].output_tensors
-    #print("yahao-dbg", input_layer.input_shape)
+    input_layer = Input(shape=(num_features,))
+    print("input_layer: ", type(input_layer))
 
     # Set up MMoE layer
     mmoe_layers = MMoE(
